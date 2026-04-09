@@ -1,0 +1,44 @@
+services:
+  panelarr:
+    image: ghcr.io/thug-drama/panelarr:latest
+    build: .
+    container_name: panelarr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # remove when fronting with Traefik or another reverse proxy
+    volumes:
+      # Docker socket, required so Panelarr can manage your other containers
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Persistent config (panelarr.json lives here)
+      - panelarr_config:/config
+      # Optional: mount media drives read-only so disk usage shows on the dashboard
+      # - /mnt/media:/mnt/media:ro
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/system/health')"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # Traefik (optional). Uncomment the labels and the networks block below,
+    # drop the ports mapping above, and replace "traefik" with the network
+    # name your Traefik instance is on. Saltbox users: use "saltbox".
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.panelarr.rule=Host(`panelarr.yourdomain.com`)"
+    #   - "traefik.http.routers.panelarr.entrypoints=websecure"
+    #   - "traefik.http.routers.panelarr.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.panelarr.loadbalancer.server.port=8000"
+    # networks:
+    #   - traefik
+
+volumes:
+  panelarr_config:
+
+# networks:
+#   traefik:
+#     external: true

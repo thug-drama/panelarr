@@ -1,0 +1,50 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Editors / IDE
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Local environment & secrets
+.env
+.env.*
+!.env.example
+*.local
+panelarr.json
+
+# Python build artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+.eggs
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+.tox
+.venv
+venv
+env
+
+# Node / frontend build artifacts (the build stage runs `npm ci` itself)
+frontend/node_modules
+frontend/dist
+frontend/coverage
+frontend/.vite
+
+# Test / coverage output
+coverage
+
+# Docs and CI files not needed inside the image
+docs
+.github
+*.md
+!README.md
+
+# OS junk
+Thumbs.db

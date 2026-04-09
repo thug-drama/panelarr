@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
+coverage/
+frontend/dist/
+
+# Docker
+*.tar
+docker-compose.override.yml
+
+# AI tooling (local only, never commit)
+.rtk/
+.agents/
+.claude/
+.claude.json
+skills-lock.json
+.summonaikit/
+*.skill
+CLAUDE.md
+.cursorrules
+.aider*
+*.aiignore
+
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo

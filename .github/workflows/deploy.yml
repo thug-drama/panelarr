@@ -1,0 +1,32 @@
+name: deploy
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, panelarr]
+    steps:
+      - name: Deploy in place
+        run: |
+          set -euo pipefail
+          cd /opt/panelarr
+          git fetch origin
+          git reset --hard origin/develop
+          # Box-local compose tweaks belong in docker-compose.override.yml,
+          # which is gitignored and auto-merged by compose. This deploy never
+          # touches that file, so local overrides survive across deploys.
+          if docker compose pull 2>/dev/null; then
+            echo "Pulled fresh image from GHCR"
+          else
+            echo "Pull failed or not configured, falling back to local build"
+            docker compose build --no-cache
+          fi
+          docker compose up -d
+          docker image prune -f
+          echo "Deploy complete"
