@@ -17,10 +17,7 @@ jobs:
           set -euo pipefail
           cd /opt/panelarr
           git fetch origin
-          git reset --hard origin/develop
-          # Box-local compose tweaks belong in docker-compose.override.yml,
-          # which is gitignored and auto-merged by compose. This deploy never
-          # touches that file, so local overrides survive across deploys.
+          git checkout origin/develop -- backend/ frontend/ pyproject.toml Dockerfile .github/
           if docker compose pull 2>/dev/null; then
             echo "Pulled fresh image from GHCR"
           else
