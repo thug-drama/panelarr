@@ -17,6 +17,7 @@ IMAGE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     ],
     "sabnzbd": [
         re.compile(r"(linuxserver|lscr\.io/linuxserver)/sabnzbd", re.I),
+        re.compile(r"hotio/sabnzbd", re.I),
         re.compile(r"^sabnzbd(:|$)", re.I),
     ],
     "nzbget": [
@@ -26,6 +27,7 @@ IMAGE_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "qbittorrent": [
         re.compile(r"(linuxserver|lscr\.io/linuxserver)/qbittorrent", re.I),
         re.compile(r"qbittorrentofficial/qbittorrent-nox", re.I),
+        re.compile(r"binhex/arch-qbittorrent", re.I),
         re.compile(r"^qbittorrent(:|$)", re.I),
     ],
     "transmission": [
