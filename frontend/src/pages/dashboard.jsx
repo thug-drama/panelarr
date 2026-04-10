@@ -178,33 +178,30 @@ function UpdateBanner() {
   if (!data?.update_available || isDismissed) return null;
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-brand/30 bg-brand/5 px-4 py-3">
-      <div className="flex items-center gap-3">
-        <ArrowUpCircleIcon className="size-5 text-brand" />
-        <div>
-          <p className="text-sm font-medium">
-            Panelarr v{data.latest} is available
-          </p>
-          <p className="text-xs text-muted-foreground">
-            You're running v{data.current}.{" "}
-            <a
-              href={data.release_url || "https://github.com/thug-drama/panelarr/releases"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-brand hover:underline"
-            >
-              View release notes
-            </a>
-          </p>
+    <div className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <ArrowUpCircleIcon className="mt-0.5 size-5 shrink-0 text-brand" />
+          <div>
+            <p className="text-sm font-medium">
+              Panelarr v{data.latest} is available
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              You're running v{data.current}. Pull the latest image and restart to update.
+            </p>
+            <code className="mt-2 block rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+              docker compose pull &amp;&amp; docker compose up -d
+            </code>
+          </div>
         </div>
+        <button
+          onClick={() => setIsDismissed(true)}
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Dismiss"
+        >
+          <XIcon className="size-4" />
+        </button>
       </div>
-      <button
-        onClick={() => setIsDismissed(true)}
-        className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-        aria-label="Dismiss update notification"
-      >
-        <XIcon className="size-4" />
-      </button>
     </div>
   );
 }

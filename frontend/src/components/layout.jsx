@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   BoxIcon,
@@ -13,6 +13,7 @@ import {
   SettingsIcon,
   SunIcon,
   TvIcon,
+  XIcon,
 } from "lucide-react";
 
 import Logo from "@/components/logo";
@@ -88,22 +89,44 @@ function VersionLabel() {
   );
 }
 
-function UpdateBadge() {
+function UpdateCard() {
   const { data } = useVersionCheck();
-  if (!data?.update_available) return null;
+  const [isDismissed, setIsDismissed] = useState(false);
+
+  if (!data?.update_available || isDismissed) return null;
+
   return (
-    <a
-      href={data.release_url || "https://github.com/thug-drama/panelarr/releases"}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mx-2 flex items-center gap-2 rounded-md border border-brand/30 bg-brand/10 px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand/20 group-data-[collapsible=icon]:hidden"
-    >
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
-      </span>
-      v{data.latest} available
-    </a>
+    <div className="mx-2 mb-1 group-data-[collapsible=icon]:hidden">
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2 shrink-0 mt-1">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
+            </span>
+            <div>
+              <p className="text-xs font-medium">Update available</p>
+              <p className="text-[11px] text-muted-foreground">
+                v{data.latest} ready to install
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsDismissed(true)}
+            className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            aria-label="Dismiss"
+          >
+            <XIcon className="size-3" />
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Pull the latest image and restart to update:
+        </p>
+        <code className="mt-1 block rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+          docker compose pull && docker compose up -d
+        </code>
+      </div>
+    </div>
   );
 }
 
@@ -199,8 +222,9 @@ export default function Layout() {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
+          <UpdateCard />
+          <Separator className="group-data-[collapsible=icon]:hidden" />
           <UserSection />
-          <UpdateBadge />
           <div className="flex items-center justify-between px-2 py-1">
             <VersionLabel />
             <ThemeToggle />
