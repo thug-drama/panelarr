@@ -8,7 +8,7 @@
 <br />
 
 [![CI](https://github.com/thug-drama/panelarr/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/thug-drama/panelarr/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.0--alpha-6366f1?style=flat-square)
+![Version](https://img.shields.io/github/v/release/thug-drama/panelarr?include_prereleases&style=flat-square&color=6366f1&label=version)
 ![License](https://img.shields.io/badge/license-MIT-6366f1?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black)
