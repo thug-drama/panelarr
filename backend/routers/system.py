@@ -465,3 +465,19 @@ async def version_check() -> dict:
     except Exception:
         _version_check_logger.debug("Version check failed", exc_info=True)
         return {"current": current, "latest": current, "update_available": False}
+
+
+@router.post("/self-update")
+async def self_update() -> dict:
+    """Pull the latest GHCR image and recreate the panelarr container.
+
+    Uses the Docker socket to pull the new image, stop the current container,
+    remove it, create a new one with the same config, and start it. The
+    container running this code will be replaced, so the response may not
+    reach the client. The frontend should poll /api/system/health after
+    calling this to detect when the new container is up.
+    """
+    from backend.services.docker import pull_and_recreate
+
+    result = await pull_and_recreate("panelarr")
+    return result

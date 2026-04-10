@@ -177,6 +177,12 @@ export function useVersionCheck() {
   });
 }
 
+export function useSelfUpdate() {
+  return useMutation({
+    mutationFn: () => apiFetch("/system/self-update", { method: "POST" }),
+  });
+}
+
 export function useDisks() {
   // Fast disk-only endpoint, does NOT touch Docker, so it's safe to refetch
   // aggressively and ideal for the dashboard's disk widget. Decoupled from

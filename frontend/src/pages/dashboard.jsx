@@ -50,6 +50,7 @@ import {
   useMediaStats,
   useSystemHealth,
   useSystemInfo,
+  useSelfUpdate,
   useVersionCheck,
 } from "@/hooks/use-api";
 import { CalendarAgendaRow } from "@/components/calendar-agenda-row";
@@ -173,34 +174,68 @@ function StreamCard({ stream }) {
 
 function UpdateBanner() {
   const { data } = useVersionCheck();
+  const selfUpdate = useSelfUpdate();
   const [isDismissed, setIsDismissed] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   if (!data?.update_available || isDismissed) return null;
 
+  async function handleUpdate() {
+    setIsUpdating(true);
+    try {
+      await selfUpdate.mutateAsync();
+    } catch {
+      // Container may die before responding
+    }
+    const poll = setInterval(async () => {
+      try {
+        const resp = await fetch("/api/system/health");
+        if (resp.ok) {
+          clearInterval(poll);
+          window.location.reload();
+        }
+      } catch {
+        // Still restarting
+      }
+    }, 2000);
+    setTimeout(() => clearInterval(poll), 120_000);
+  }
+
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <ArrowUpCircleIcon className="mt-0.5 size-5 shrink-0 text-brand" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <ArrowUpCircleIcon className="size-5 shrink-0 text-brand" />
           <div>
             <p className="text-sm font-medium">
               Panelarr v{data.latest} is available
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              You're running v{data.current}. Pull the latest image and restart to update.
+            <p className="text-xs text-muted-foreground">
+              You're running v{data.current}
             </p>
-            <code className="mt-2 block rounded bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-              docker compose pull &amp;&amp; docker compose up -d
-            </code>
           </div>
         </div>
-        <button
-          onClick={() => setIsDismissed(true)}
-          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          aria-label="Dismiss"
-        >
-          <XIcon className="size-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleUpdate} disabled={isUpdating}>
+            {isUpdating ? (
+              <>
+                <Spinner className="size-3" />
+                Updating...
+              </>
+            ) : (
+              "Update now"
+            )}
+          </Button>
+          {!isUpdating && (
+            <button
+              onClick={() => setIsDismissed(true)}
+              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              <XIcon className="size-4" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
