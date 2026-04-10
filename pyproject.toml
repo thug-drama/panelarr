@@ -1,6 +1,6 @@
 [project]
 name = "panelarr"
-version = "0.2.0-alpha"
+version = "0.2.1-alpha"
 description = "Self-hosted control center for Docker-based media server stacks"
 readme = "README.md"
 license = "MIT"

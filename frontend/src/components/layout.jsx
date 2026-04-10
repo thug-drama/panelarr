@@ -200,10 +200,25 @@ function UserSection() {
   );
 }
 
+function UpdateOverlay() {
+  const { isUpdating } = useUpdate();
+  if (!isUpdating) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+      <Spinner className="size-8 text-brand" />
+      <p className="mt-4 text-sm font-medium">Updating Panelarr...</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Pulling new image and restarting. This page will reload automatically.
+      </p>
+    </div>
+  );
+}
+
 export default function Layout() {
   const location = useLocation();
   return (
     <SidebarProvider>
+      <UpdateOverlay />
       <Sidebar collapsible="icon">
         <SidebarHeader>
           <SidebarMenu>
