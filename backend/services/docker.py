@@ -644,13 +644,17 @@ async def self_update() -> dict:
                 f"docker start {_shell_quote(container_name)}\n"
             )
 
-            # ── 6. Launch the ephemeral sidecar via the Docker socket ────────────
-            # The sidecar image is ``docker:cli`` — a tiny Alpine-based image that
-            # ships only the Docker CLI binary. It mounts the same Docker socket
-            # so it can issue Engine API calls against the host daemon.
-            #
-            # AutoRemove=True → sidecar cleans itself up on exit.
-            # The sidecar has NO port bindings, so there is no conflict.
+            # 6. Ensure the sidecar image is available locally
+            logger.info("self_update: pulling docker:cli sidecar image")
+            cli_pull = await client.post(
+                _docker_url("/images/create"),
+                params={"fromImage": "docker", "tag": "cli"},
+                timeout=60,
+            )
+            if cli_pull.status_code not in (200, 201):
+                logger.warning("self_update: docker:cli pull returned %s", cli_pull.status_code)
+
+            # 7. Launch the ephemeral sidecar
             sidecar_name = f"panelarr-updater-{int(asyncio.get_event_loop().time())}"
             sidecar_body: dict = {
                 "Image": "docker:cli",
