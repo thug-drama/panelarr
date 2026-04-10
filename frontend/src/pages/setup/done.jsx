@@ -60,7 +60,10 @@ export default function SetupDone() {
       if (auth.mode === "basic") {
         navigate("/login", { replace: true });
       } else {
-        navigate(result?.redirect ?? "/", { replace: true });
+        const target = result?.redirect ?? "/";
+        // Only allow relative paths starting with / (not //) to prevent open redirects
+        const safeTarget = typeof target === "string" && target.startsWith("/") && !target.startsWith("//") ? target : "/";
+        navigate(safeTarget, { replace: true });
       }
     } catch (err) {
       toastManager.add({ type: "error", title: "Failed to complete setup", description: err.message });

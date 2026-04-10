@@ -16,6 +16,9 @@ router = APIRouter(tags=["logs"])
 
 CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,127}$")
 
+MAX_LOG_STREAMS = 50
+_active_log_streams = 0
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 
@@ -52,19 +55,22 @@ async def get_logs(
 
 @router.websocket("/ws/logs/{container_name}")
 async def ws_stream_logs(websocket: WebSocket, container_name: str) -> None:
+    global _active_log_streams
     if not _check_ws_auth(websocket):
         await websocket.close(code=4401)
         return
     if not CONTAINER_NAME_RE.match(container_name):
         await websocket.close(code=4400)
         return
+    if _active_log_streams >= MAX_LOG_STREAMS:
+        await websocket.close(code=4429)
+        return
+    _active_log_streams += 1
     await websocket.accept()
     try:
         async for line in stream_container_logs(container_name):
             await websocket.send_text(_strip_ansi(line))
             await asyncio.sleep(0)
-        # Stream ended, container likely stopped. Close with 4000 (custom: stream ended)
-        # so the frontend knows NOT to auto-reconnect.
         try:
             await websocket.send_text("[Stream ended, container stopped]")
             await websocket.close(code=4000, reason="Container stopped")
@@ -78,3 +84,5 @@ async def ws_stream_logs(websocket: WebSocket, container_name: str) -> None:
             await websocket.close(code=1011)
         except RuntimeError:
             pass
+    finally:
+        _active_log_streams -= 1

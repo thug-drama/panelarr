@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 import time
-from collections import defaultdict
+from collections import OrderedDict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -25,21 +25,28 @@ from backend.services.auth_config import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-# Simple in-memory rate limiter: max 10 attempts per IP per 60 seconds
-_login_attempts: dict[str, list[float]] = defaultdict(list)
+# In-memory rate limiter: max 10 attempts per IP per 60 seconds, capped at
+# 10k tracked IPs to prevent memory exhaustion from IP rotation attacks.
+_login_attempts: OrderedDict[str, list[float]] = OrderedDict()
 RATE_LIMIT_MAX = 10
+_RATE_LIMIT_MAX_IPS = 10_000
 RATE_LIMIT_WINDOW = 60
 
 
 def _check_rate_limit(ip: str) -> bool:
     """Return True if the request is within rate limits."""
     now = time.monotonic()
-    attempts = _login_attempts[ip]
-    # Prune old entries
-    _login_attempts[ip] = [t for t in attempts if now - t < RATE_LIMIT_WINDOW]
-    if len(_login_attempts[ip]) >= RATE_LIMIT_MAX:
+    attempts = _login_attempts.get(ip, [])
+    attempts = [t for t in attempts if now - t < RATE_LIMIT_WINDOW]
+    if len(attempts) >= RATE_LIMIT_MAX:
+        _login_attempts[ip] = attempts
         return False
-    _login_attempts[ip].append(now)
+    attempts.append(now)
+    _login_attempts[ip] = attempts
+    _login_attempts.move_to_end(ip)
+    # Evict oldest entries if dict is too large
+    while len(_login_attempts) > _RATE_LIMIT_MAX_IPS:
+        _login_attempts.popitem(last=False)
     return True
 
 
@@ -132,15 +139,18 @@ async def auth_status(request: Request) -> dict:
     stored_username, stored_hash = get_credentials()
     proxy_header = get_effective_proxy_header()
 
-    return {
+    response: dict = {
         "mode": mode,
         "authenticated": authenticated,
         "user": user,
         "writable": is_auth_writable(),
-        "username": stored_username,
-        "has_password": bool(stored_hash),
-        "proxy_header": proxy_header,
     }
+    # Only expose admin metadata to authenticated callers
+    if authenticated:
+        response["username"] = stored_username
+        response["has_password"] = bool(stored_hash)
+        response["proxy_header"] = proxy_header
+    return response
 
 
 _VALID_MODES = {"none", "basic", "proxy", "apikey"}
@@ -170,7 +180,10 @@ async def update_auth_config(body: AuthConfigBody) -> dict:
         # Allow updating username without rotating the password by leaving
         # it blank, preserves the existing hash.
         if body.password:
-            set_auth_in_config(mode="basic", username=body.username, password=body.password)
+            try:
+                set_auth_in_config(mode="basic", username=body.username, password=body.password)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         elif current_hash and body.username == username:
             set_auth_in_config(mode="basic")  # mode-only refresh, keep existing creds
         elif current_hash:

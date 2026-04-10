@@ -4,10 +4,22 @@ services:
     build: .
     container_name: panelarr
     restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
     ports:
       - "8000:8000"  # remove when fronting with Traefik or another reverse proxy
     volumes:
-      # Docker socket, required so Panelarr can manage your other containers
+      # Docker socket, required so Panelarr can manage your containers.
+      # For tighter control, use a socket proxy like tecnativa/docker-socket-proxy
+      # instead of mounting the raw daemon socket.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # Persistent config (panelarr.json lives here)
       - panelarr_config:/config

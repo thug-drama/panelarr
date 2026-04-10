@@ -185,9 +185,44 @@ async def _send_email(cfg: dict, title: str, body: str) -> bool:
     )
 
 
+def _is_safe_url(url: str) -> bool:
+    """Reject non-http(s) schemes, private/loopback/link-local IPs, and metadata hosts.
+
+    Uses ipaddress module to catch all numeric forms (decimal, octal, hex,
+    IPv4-mapped IPv6) rather than matching specific strings.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower().strip("[]")
+    if not host:
+        return False
+    # Block known metadata hostnames
+    blocked_hosts = ("metadata.google.internal", "metadata.google", "localhost")
+    if any(host == b or host.endswith("." + b) for b in blocked_hosts):
+        return False
+    # Block private, loopback, link-local, and unspecified IPs in any form
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.is_loopback or addr.is_private or addr.is_link_local or addr.is_unspecified:
+            return False
+    except ValueError:
+        pass  # Not an IP literal, hostname is fine
+    return True
+
+
 async def send_to_channel(channel: dict, title: str, body: str, color: int = 0x6366F1) -> bool:
     ch_type = channel.get("type", "")
     cfg = channel.get("config", {})
+
+    # Validate webhook URLs before making any outbound request
+    url_field = cfg.get("webhook_url") or cfg.get("url") or ""
+    if ch_type in ("discord", "slack", "webhook") and not _is_safe_url(url_field):
+        logger.warning("Blocked notification to unsafe URL: %s", url_field[:80])
+        return False
 
     if ch_type == "discord":
         return await _send_discord(cfg.get("webhook_url", ""), title, body, color)

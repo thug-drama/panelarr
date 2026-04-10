@@ -462,7 +462,7 @@ async def test_service_connection(service: str, override: dict | None = None) ->
                 resp.raise_for_status()
                 return {"ok": True, "message": "Webhook sent"}
         except Exception as exc:
-            return {"ok": False, "message": str(exc)}
+            return {"ok": False, "message": type(exc).__name__}
 
     try:
         async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
@@ -506,4 +506,4 @@ async def test_service_connection(service: str, override: dict | None = None) ->
     except httpx.HTTPStatusError as exc:
         return {"ok": False, "message": f"HTTP {exc.response.status_code}"}
     except Exception as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": type(exc).__name__}

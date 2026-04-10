@@ -345,7 +345,11 @@ async def pull_and_recreate(name_or_id: str) -> dict:
                 }
 
             # 5. Build the create payload from the old container's config
-            # Docker's create API expects Config + HostConfig + NetworkingConfig
+            if host_config.get("Privileged"):
+                logger.warning(
+                    "Container %s has Privileged=true, recreating with same privileges",
+                    container_name,
+                )
             create_body: dict = {
                 **config,
                 "HostConfig": host_config,

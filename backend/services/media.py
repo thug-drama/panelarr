@@ -12,6 +12,17 @@ logger = logging.getLogger(__name__)
 API_TIMEOUT = 10
 
 
+def _safe_error(exc: Exception) -> str:
+    """Return a safe error message that never includes URLs or credentials."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.ConnectError):
+        return "Connection refused or unreachable"
+    if isinstance(exc, httpx.TimeoutException):
+        return "Request timed out"
+    return type(exc).__name__
+
+
 def _parse_plex_session(metadata: dict) -> dict:
     """Parse a Plex session into a rich stream info dict."""
     user = metadata.get("User", {}).get("title", "Unknown")
@@ -149,10 +160,10 @@ async def get_plex_stats() -> dict:
             }
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("Plex stats error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
     except Exception as exc:
         logger.warning("Plex stats unexpected error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
 
 
 async def get_jellyfin_stats() -> dict:
@@ -187,10 +198,10 @@ async def get_jellyfin_stats() -> dict:
             }
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("Jellyfin stats error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
     except Exception as exc:
         logger.warning("Jellyfin stats unexpected error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
 
 
 async def get_emby_stats() -> dict:
@@ -225,7 +236,7 @@ async def get_emby_stats() -> dict:
             }
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("Emby stats error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
     except Exception as exc:
         logger.warning("Emby stats unexpected error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 
 from fastapi import APIRouter, HTTPException
 
@@ -34,9 +35,19 @@ async def get_containers(show_all: bool = True) -> list[dict]:
         raise HTTPException(status_code=503, detail="Docker unavailable") from exc
 
 
+_last_update_check: float = 0.0
+_UPDATE_CHECK_COOLDOWN = 60  # seconds between full registry scans
+
+
 @router.get("/check-updates")
 async def check_updates() -> dict:
     """Check all containers for available image updates."""
+    global _last_update_check
+    now = time.monotonic()
+    if now - _last_update_check < _UPDATE_CHECK_COOLDOWN:
+        remaining = int(_UPDATE_CHECK_COOLDOWN - (now - _last_update_check))
+        raise HTTPException(status_code=429, detail=f"Try again in {remaining}s")
+    _last_update_check = now
     try:
         containers = await list_containers(show_all=True)
     except Exception as exc:

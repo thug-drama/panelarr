@@ -11,6 +11,19 @@ from backend.services.registry import KNOWN_SERVICES
 logger = logging.getLogger(__name__)
 
 API_TIMEOUT = 15
+
+
+def _safe_error(exc: Exception) -> str:
+    """Return a safe error message that never includes URLs or query params."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    if isinstance(exc, httpx.ConnectError):
+        return "Connection refused or unreachable"
+    if isinstance(exc, httpx.TimeoutException):
+        return "Request timed out"
+    return type(exc).__name__
+
+
 SEARCH_TIMEOUT = 30  # External lookups (TMDB/TVDB) can be slow
 
 _http_client: httpx.AsyncClient | None = None
@@ -93,7 +106,7 @@ async def get_arr_status(service_name: str) -> dict:
         return await _arr_get(url, api_key, "/api/v3/system/status")
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("%s status error: %s", service_name, exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
 
 
 async def get_arr_queue(service_name: str) -> dict:
@@ -125,7 +138,7 @@ async def get_arr_queue(service_name: str) -> dict:
         return result if isinstance(result, dict) else {"records": result}
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("%s queue error: %s", service_name, exc)
-        return {"configured": True, "error": str(exc), "records": []}
+        return {"configured": True, "error": _safe_error(exc), "records": []}
 
 
 # Backward-compat wrappers
@@ -168,7 +181,7 @@ async def delete_queue_item(
         )
         return {"ok": True}
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 async def get_sabnzbd_stats() -> dict:
@@ -199,7 +212,7 @@ async def get_sabnzbd_stats() -> dict:
         }
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("SABnzbd stats error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
 
 
 async def get_qbittorrent_stats() -> dict:
@@ -266,7 +279,7 @@ async def get_qbittorrent_stats() -> dict:
             }
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("qBittorrent stats error: %s", exc)
-        return {"configured": True, "error": str(exc)}
+        return {"configured": True, "error": _safe_error(exc)}
 
 
 def get_configured_arr_services() -> list[str]:
@@ -424,7 +437,7 @@ async def trigger_import_scan(service: str, download_id: int | None = None) -> d
         await _arr_post(url, api_key, "/api/v3/command", {"name": "RefreshMonitoredDownloads"})
         return {"ok": True, "message": f"Import refresh triggered on {service}"}
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 def _extract_poster(images: list) -> str:
@@ -916,16 +929,16 @@ async def add_movie(tmdb_id: int, quality_profile_id: int = 0) -> dict[str, obje
             try:
                 detail = exc.response.json()
                 msg = (
-                    detail[0].get("errorMessage", str(exc))
+                    detail[0].get("errorMessage", _safe_error(exc))
                     if isinstance(detail, list)
                     else str(detail)
                 )
             except Exception:
-                msg = str(exc)
+                msg = _safe_error(exc)
             return {"ok": False, "message": msg}
         return {"ok": False, "message": f"HTTP {exc.response.status_code}"}
     except (httpx.ConnectError, httpx.TimeoutException) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 async def search_shows(query: str) -> list[dict]:
@@ -1025,16 +1038,16 @@ async def add_show(tvdb_id: int, quality_profile_id: int = 0) -> dict[str, objec
             try:
                 detail = exc.response.json()
                 msg = (
-                    detail[0].get("errorMessage", str(exc))
+                    detail[0].get("errorMessage", _safe_error(exc))
                     if isinstance(detail, list)
                     else str(detail)
                 )
             except Exception:
-                msg = str(exc)
+                msg = _safe_error(exc)
             return {"ok": False, "message": msg}
         return {"ok": False, "message": f"HTTP {exc.response.status_code}"}
     except (httpx.ConnectError, httpx.TimeoutException) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 async def trigger_search_missing(service: str, series_id: int) -> dict[str, object]:
@@ -1057,7 +1070,7 @@ async def trigger_search_missing(service: str, series_id: int) -> dict[str, obje
         httpx.TimeoutException,
         httpx.HTTPStatusError,
     ) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 async def trigger_season_search(
@@ -1090,7 +1103,7 @@ async def trigger_season_search(
         httpx.TimeoutException,
         httpx.HTTPStatusError,
     ) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 async def trigger_episode_search(
@@ -1120,7 +1133,7 @@ async def trigger_episode_search(
         httpx.TimeoutException,
         httpx.HTTPStatusError,
     ) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 async def trigger_movie_search(movie_id: int) -> dict[str, object]:
@@ -1143,4 +1156,4 @@ async def trigger_movie_search(movie_id: int) -> dict[str, object]:
         httpx.TimeoutException,
         httpx.HTTPStatusError,
     ) as exc:
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": _safe_error(exc)}

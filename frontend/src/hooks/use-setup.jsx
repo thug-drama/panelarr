@@ -83,10 +83,16 @@ export function SetupProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, undefined, loadFromStorage);
   const navigate = useNavigate();
 
-  // Persist state to sessionStorage on every change
+  // Persist state to sessionStorage on every change, stripping
+  // sensitive fields (passwords) before serializing
   useEffect(() => {
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      const safe = { ...state };
+      if (safe.auth) {
+        const { password, confirmPassword, ...rest } = safe.auth;
+        safe.auth = rest;
+      }
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(safe));
     } catch {
       // ignore storage errors (private browsing, etc.)
     }

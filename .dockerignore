@@ -40,9 +40,15 @@ frontend/.vite
 # Test / coverage output
 coverage
 
-# Docs and CI files not needed inside the image
+# Docs, CI, and AI tooling not needed inside the image
 docs
 .github
+.claude
+.claude.json
+.rtk
+.agents
+.summonaikit
+CLAUDE.md
 *.md
 !README.md
 

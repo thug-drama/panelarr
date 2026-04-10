@@ -316,6 +316,11 @@ async def discord_health_check() -> dict:
         ],
     }
 
+    from backend.services.notifications import _is_safe_url
+
+    if not _is_safe_url(webhook_url):
+        return {"ok": False, "message": "Webhook URL blocked by security policy"}
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -324,8 +329,10 @@ async def discord_health_check() -> dict:
             )
             resp.raise_for_status()
             return {"ok": True, "message": "Health check posted to Discord"}
-    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-        return {"ok": False, "message": str(exc)}
+    except httpx.HTTPStatusError as exc:
+        return {"ok": False, "message": f"HTTP {exc.response.status_code}"}
+    except (httpx.ConnectError, httpx.TimeoutException):
+        return {"ok": False, "message": "Connection failed"}
 
 
 @router.get("/media")

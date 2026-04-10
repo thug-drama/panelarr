@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
 
 from backend.services.config import (
     PanelarrConfig,
@@ -33,8 +34,22 @@ async def update_config(updates: dict) -> dict:
     original = json.loads(json.dumps(current.model_dump()))  # Deep copy
     merged = json.loads(json.dumps(original))
 
-    # Replace services entirely, empty services are removed, not merged
+    # Validate service URLs before saving
     if "services" in updates:
+        for svc_name, svc_cfg in updates["services"].items():
+            url = svc_cfg.get("url", "")
+            if url:
+                parsed = urlparse(url)
+                if parsed.scheme not in ("http", "https"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Service '{svc_name}': URL scheme must be http or https",
+                    )
+                if not parsed.hostname:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Service '{svc_name}': URL has no hostname",
+                    )
         merged["services"] = updates["services"]
 
     # Merge notifications

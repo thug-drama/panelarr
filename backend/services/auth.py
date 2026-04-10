@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -42,7 +43,7 @@ def get_or_create_secret() -> str:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Generate new secret and persist
+    # Generate new secret and persist with restrictive permissions
     new_secret = secrets.token_hex(32)
     try:
         data = {}
@@ -50,16 +51,27 @@ def get_or_create_secret() -> str:
             data = json.loads(config_path.read_text())
         data.setdefault("auth", {})["secret"] = new_secret
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(data, indent=2))
+        fd = os.open(str(config_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
     except Exception:
         logger.warning("Could not persist auth secret to config file")
     _cached_secret = new_secret
     return _cached_secret
 
 
+MAX_PASSWORD_BYTES = 72
+
+
 def hash_password(plaintext: str) -> str:
-    """Hash a password with bcrypt."""
-    return bcrypt.hashpw(plaintext.encode(), bcrypt.gensalt()).decode()
+    """Hash a password with bcrypt.
+
+    Raises ValueError if the encoded password exceeds bcrypt's 72-byte limit.
+    """
+    encoded = plaintext.encode()
+    if len(encoded) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"Password must be {MAX_PASSWORD_BYTES} bytes or fewer when encoded")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt()).decode()
 
 
 def verify_password(plaintext: str, hashed: str) -> bool:

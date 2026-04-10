@@ -55,15 +55,16 @@ app = FastAPI(
 
 _allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
 _allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
-if not _allowed_origins:
-    _allowed_origins = ["*"]  # Default for self-hosted: permissive
 
+# allow_credentials=True is incompatible with allow_origins=["*"] per
+# the fetch spec. When no origins are configured, use permissive CORS
+# without credentials. When explicit origins are set, enable credentials.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_origins=_allowed_origins or ["*"],
+    allow_credentials=bool(_allowed_origins),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["X-Api-Key", "Content-Type"],
+    allow_headers=["X-Api-Key", "Content-Type", "X-Confirm-Reset"],
 )
 
 
@@ -79,16 +80,19 @@ async def auth_middleware(request: Request, call_next):
     if path == "/api/setup/status":
         return await call_next(request)
 
-    # All other setup endpoints are open while the wizard hasn't finished
-    if path.startswith("/api/setup/") and not is_setup_complete():
+    # Setup endpoints are open while the wizard hasn't finished, except
+    # /reset which requires auth even in mode=none (it's destructive).
+    if path.startswith("/api/setup/") and path != "/api/setup/reset" and not is_setup_complete():
         return await call_next(request)
 
     # Mode none, no auth
     if mode == "none":
         return await call_next(request)
 
-    # Auth endpoints always accessible
-    if path.startswith("/api/auth/"):
+    # Only login, logout, and status are public auth endpoints.
+    # Write endpoints (PUT /api/auth/config, POST /api/auth/apikey/regenerate)
+    # must go through mode-specific auth checks below.
+    if path in ("/api/auth/login", "/api/auth/logout", "/api/auth/status"):
         return await call_next(request)
 
     # Static files (SPA) always accessible, frontend handles redirect to /login

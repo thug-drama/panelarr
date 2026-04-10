@@ -204,7 +204,10 @@ async def setup_auth(body: AuthBody) -> dict:
                 status_code=422,
                 detail="username and password are required for basic auth mode",
             )
-        set_auth_in_config(mode="basic", username=body.username, password=body.password)
+        try:
+            set_auth_in_config(mode="basic", username=body.username, password=body.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"ok": True}
 
     if body.mode == "proxy":
@@ -294,7 +297,7 @@ async def setup_test_notification(body: NotificationBody) -> dict:
             "This is a test notification from the setup wizard.",
         )
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": str(exc)}
+        return {"ok": False, "message": type(exc).__name__}
     return {"ok": ok, "message": "Sent" if ok else "Failed to send"}
 
 
@@ -343,9 +346,20 @@ async def setup_complete() -> dict:
 
 
 @router.post("/reset")
-async def setup_reset() -> dict:
-    """Reset the setup completion flag to re-run the wizard."""
+async def setup_reset(request: Request) -> dict:
+    """Reset the setup completion flag to re-run the wizard.
+
+    Requires authentication regardless of auth mode. Even in mode=none
+    this is a destructive action that wipes services, notifications, and
+    thresholds, so we require a confirmation header to prevent accidental
+    or cross-site calls.
+    """
     if not is_setup_complete():
         raise HTTPException(status_code=400, detail="Setup is not complete, nothing to reset")
+    if request.headers.get("X-Confirm-Reset") != "true":
+        raise HTTPException(
+            status_code=400,
+            detail="Send X-Confirm-Reset: true header to confirm this destructive action",
+        )
     reset_setup()
     return {"ok": True}

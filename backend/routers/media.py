@@ -33,6 +33,19 @@ router = APIRouter(prefix="/api/media", tags=["media"])
 POSTER_CACHE_DIR = Path("/config/poster_cache")
 POSTER_TIMEOUT = 10
 
+
+def _evict_poster_cache(max_bytes: int = 500 * 1024 * 1024) -> None:
+    """Evict oldest cached posters when total size exceeds max_bytes."""
+    if not POSTER_CACHE_DIR.is_dir():
+        return
+    files = sorted(POSTER_CACHE_DIR.iterdir(), key=lambda p: p.stat().st_mtime)
+    total = sum(f.stat().st_size for f in files)
+    while total > max_bytes and files:
+        oldest = files.pop(0)
+        total -= oldest.stat().st_size
+        oldest.unlink(missing_ok=True)
+
+
 _poster_client: httpx.AsyncClient | None = None
 _poster_client_lock = asyncio.Lock()
 
@@ -210,13 +223,23 @@ async def poster_proxy(url: str) -> Response:
         if resp.status_code != 200:
             return Response(status_code=404)
 
-        # Save to cache
+        # Validate content-type is actually an image
+        content_type = resp.headers.get("content-type", "")
+        if not content_type.startswith("image/"):
+            return Response(status_code=415)
+
+        # Reject oversized responses (max 10 MB)
+        if len(resp.content) > 10 * 1024 * 1024:
+            return Response(status_code=413)
+
+        # Enforce poster cache size (max 500 MB, evict oldest)
         POSTER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _evict_poster_cache(max_bytes=500 * 1024 * 1024)
         cache_path.write_bytes(resp.content)
 
         return Response(
             content=resp.content,
-            media_type=resp.headers.get("content-type", "image/jpeg"),
+            media_type=content_type,
             headers={"Cache-Control": "public, max-age=604800"},
         )
     except Exception:
