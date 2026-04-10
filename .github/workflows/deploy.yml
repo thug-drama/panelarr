@@ -18,12 +18,7 @@ jobs:
           cd /opt/panelarr
           git fetch origin
           git checkout origin/develop -- backend/ frontend/ pyproject.toml Dockerfile entrypoint.sh .github/
-          if docker compose pull 2>/dev/null; then
-            echo "Pulled fresh image from GHCR"
-          else
-            echo "Pull failed or not configured, falling back to local build"
-            docker compose build --no-cache
-          fi
+          docker compose build --no-cache
           docker compose up -d
           docker image prune -f
           echo "Deploy complete"
