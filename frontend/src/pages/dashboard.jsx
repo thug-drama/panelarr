@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  ArrowUpCircleIcon,
   BoxIcon,
   CalendarDaysIcon,
   CpuIcon,
@@ -16,6 +17,7 @@ import {
   SendIcon,
   ShieldCheckIcon,
   TvIcon,
+  XIcon,
 } from "lucide-react";
 
 import {
@@ -48,9 +50,11 @@ import {
   useMediaStats,
   useSystemHealth,
   useSystemInfo,
+  useVersionCheck,
 } from "@/hooks/use-api";
 import { CalendarAgendaRow } from "@/components/calendar-agenda-row";
 import { cn, formatBytes } from "@/lib/utils";
+import { useUpdate } from "@/hooks/use-update";
 
 function meterColor(pct, warn = 80, crit = 90) {
   if (pct >= crit) return "bg-red-500";
@@ -168,6 +172,53 @@ function StreamCard({ stream }) {
   );
 }
 
+function UpdateBanner() {
+  const { data } = useVersionCheck();
+  const { isUpdating, triggerUpdate } = useUpdate();
+  const [isDismissed, setIsDismissed] = useState(false);
+
+  if (!data?.update_available || isDismissed) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <ArrowUpCircleIcon className="size-5 shrink-0 text-brand" />
+          <div>
+            <p className="text-sm font-medium">
+              Panelarr v{data.latest} is available
+            </p>
+            <p className="text-xs text-muted-foreground">
+              You're running v{data.current}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={triggerUpdate} disabled={isUpdating}>
+            {isUpdating ? (
+              <>
+                <Spinner className="size-3" />
+                Updating...
+              </>
+            ) : (
+              "Update now"
+            )}
+          </Button>
+          {!isUpdating && (
+            <button
+              onClick={() => setIsDismissed(true)}
+              className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              <XIcon className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data: containers, isLoading: containersLoading } = useContainers();
   const { data: health, isLoading: healthLoading } = useSystemHealth();
@@ -246,6 +297,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <UpdateBanner />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <div className="flex gap-2">

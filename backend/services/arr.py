@@ -241,13 +241,20 @@ async def get_qbittorrent_stats() -> dict:
             info_resp.raise_for_status()
             info = info_resp.json()
 
-            torrents_resp = await client.get(
-                f"{url}/api/v2/torrents/info",
-                params={"filter": "active"},
-                cookies=cookies,
+            dl_resp, seed_resp = await asyncio.gather(
+                client.get(
+                    f"{url}/api/v2/torrents/info",
+                    params={"filter": "downloading"},
+                    cookies=cookies,
+                ),
+                client.get(
+                    f"{url}/api/v2/torrents/info",
+                    params={"filter": "seeding"},
+                    cookies=cookies,
+                ),
             )
-            torrents_resp.raise_for_status()
-            active = torrents_resp.json()
+            downloading = dl_resp.json() if dl_resp.status_code == 200 else []
+            seeding = seed_resp.json() if seed_resp.status_code == 200 else []
 
             # Detect VPN via network interface binding
             vpn_interface = ""
@@ -271,7 +278,9 @@ async def get_qbittorrent_stats() -> dict:
 
             return {
                 "configured": True,
-                "active": len(active),
+                "active": len(downloading),
+                "downloading": len(downloading),
+                "seeding": len(seeding),
                 "speed_down": info.get("dl_info_speed", 0),
                 "speed_up": info.get("up_info_speed", 0),
                 "vpn_active": vpn_active,
@@ -280,6 +289,88 @@ async def get_qbittorrent_stats() -> dict:
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
         logger.warning("qBittorrent stats error: %s", exc)
         return {"configured": True, "error": _safe_error(exc)}
+
+
+async def get_qbittorrent_torrents(filter_type: str = "seeding") -> dict:
+    """Get torrent list from qBittorrent for UI display."""
+    config = load_config()
+    svc = get_service_config(config, "qbittorrent")
+    url = svc.get("url", "")
+    username = svc.get("username", "")
+    password = svc.get("password", "")
+    if not url:
+        return {"configured": False, "torrents": []}
+    try:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+            login_resp = await client.post(
+                f"{url}/api/v2/auth/login",
+                data={"username": username, "password": password},
+            )
+            if login_resp.text != "Ok.":
+                return {"configured": True, "error": "Auth failed", "torrents": []}
+            resp = await client.get(
+                f"{url}/api/v2/torrents/info",
+                params={"filter": filter_type},
+                cookies=login_resp.cookies,
+            )
+            resp.raise_for_status()
+            torrents = [
+                {
+                    "hash": t["hash"],
+                    "name": t.get("name", ""),
+                    "size": t.get("size", 0),
+                    "state": t.get("state", ""),
+                    "progress": t.get("progress", 0),
+                    "up_speed": t.get("upspeed", 0),
+                    "ratio": t.get("ratio", 0),
+                }
+                for t in resp.json()
+            ]
+            return {"configured": True, "torrents": torrents}
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+        return {"configured": True, "error": _safe_error(exc), "torrents": []}
+
+
+async def qbittorrent_torrent_action(action: str, hashes: list[str]) -> dict:
+    """Perform an action on qBittorrent torrents (pause/resume/delete)."""
+    config = load_config()
+    svc = get_service_config(config, "qbittorrent")
+    url = svc.get("url", "")
+    username = svc.get("username", "")
+    password = svc.get("password", "")
+    if not url:
+        return {"ok": False, "message": "qBittorrent not configured"}
+
+    action_map = {
+        "pause": "/api/v2/torrents/pause",
+        "resume": "/api/v2/torrents/resume",
+        "delete": "/api/v2/torrents/delete",
+    }
+    if action not in action_map:
+        return {"ok": False, "message": f"Unknown action: {action}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=API_TIMEOUT) as client:
+            login_resp = await client.post(
+                f"{url}/api/v2/auth/login",
+                data={"username": username, "password": password},
+            )
+            if login_resp.text != "Ok.":
+                return {"ok": False, "message": "Authentication failed"}
+
+            data: dict[str, str] = {"hashes": "|".join(hashes)}
+            if action == "delete":
+                data["deleteFiles"] = "false"
+
+            resp = await client.post(
+                f"{url}{action_map[action]}",
+                data=data,
+                cookies=login_resp.cookies,
+            )
+            resp.raise_for_status()
+            return {"ok": True}
+    except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+        return {"ok": False, "message": _safe_error(exc)}
 
 
 def get_configured_arr_services() -> list[str]:

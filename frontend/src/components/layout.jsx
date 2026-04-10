@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   BoxIcon,
@@ -13,6 +13,7 @@ import {
   SettingsIcon,
   SunIcon,
   TvIcon,
+  XIcon,
 } from "lucide-react";
 
 import Logo from "@/components/logo";
@@ -33,6 +34,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarRail,
+  SidebarMenuBadge,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import {
@@ -40,8 +42,10 @@ import {
   TooltipPopup,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useContainerUpdates, useVersionCheck } from "@/hooks/use-api";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
+import { useUpdate } from "@/hooks/use-update";
 
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboardIcon, label: "Dashboard" },
@@ -76,6 +80,92 @@ const THEME_LABELS = {
   dark: "Dark",
   system: "System",
 };
+
+function ContainersNavItem() {
+  const { data } = useContainerUpdates();
+  const count = data?.updates
+    ? Object.entries(data.updates).filter(
+        ([name, info]) => name !== "panelarr" && info.has_update,
+      ).length
+    : 0;
+
+  return (
+    <SidebarMenuItem>
+      <NavLink to="/containers" end={false}>
+        {({ isActive }) => (
+          <SidebarMenuButton isActive={isActive} tooltip="Containers">
+            <BoxIcon />
+            <span>Containers</span>
+          </SidebarMenuButton>
+        )}
+      </NavLink>
+      {count > 0 && <SidebarMenuBadge>{count}</SidebarMenuBadge>}
+    </SidebarMenuItem>
+  );
+}
+
+function VersionLabel() {
+  const { data } = useVersionCheck();
+  const version = data?.current ?? "...";
+  return (
+    <span className="text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+      v{version}
+    </span>
+  );
+}
+
+function UpdateCard() {
+  const { data } = useVersionCheck();
+  const { isUpdating, triggerUpdate } = useUpdate();
+  const [isDismissed, setIsDismissed] = useState(false);
+
+  if (!data?.update_available || isDismissed) return null;
+
+  return (
+    <div className="mx-2 mb-1 group-data-[collapsible=icon]:hidden">
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2 shrink-0 mt-1">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
+            </span>
+            <div>
+              <p className="text-xs font-medium">Update available</p>
+              <p className="text-[11px] text-muted-foreground">
+                v{data.latest} ready to install
+              </p>
+            </div>
+          </div>
+          {!isUpdating && (
+            <button
+              onClick={() => setIsDismissed(true)}
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              <XIcon className="size-3" />
+            </button>
+          )}
+        </div>
+        <Button
+          size="sm"
+          className="mt-2 w-full"
+          onClick={triggerUpdate}
+          disabled={isUpdating}
+        >
+          {isUpdating ? (
+            <>
+              <Spinner className="size-3" />
+              Updating...
+            </>
+          ) : (
+            "Update now"
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function ThemeToggle() {
   const { mode, cycleMode } = useTheme();
@@ -134,10 +224,25 @@ function UserSection() {
   );
 }
 
+function UpdateOverlay() {
+  const { isUpdating } = useUpdate();
+  if (!isUpdating) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+      <Spinner className="size-8 text-brand" />
+      <p className="mt-4 text-sm font-medium">Updating Panelarr...</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Pulling new image and restarting. This page will reload automatically.
+      </p>
+    </div>
+  );
+}
+
 export default function Layout() {
   const location = useLocation();
   return (
     <SidebarProvider>
+      <UpdateOverlay />
       <Sidebar collapsible="icon">
         <SidebarHeader>
           <SidebarMenu>
@@ -152,28 +257,32 @@ export default function Layout() {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {NAV_ITEMS.map((item) => (
-                  <SidebarMenuItem key={item.to}>
-                    <NavLink to={item.to} end={item.to === "/"}>
-                      {({ isActive }) => (
-                        <SidebarMenuButton isActive={isActive} tooltip={item.label}>
-                          <item.icon />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                      )}
-                    </NavLink>
-                  </SidebarMenuItem>
-                ))}
+                {NAV_ITEMS.map((item) =>
+                  item.to === "/containers" ? (
+                    <ContainersNavItem key="/containers" />
+                  ) : (
+                    <SidebarMenuItem key={item.to}>
+                      <NavLink to={item.to} end={item.to === "/"}>
+                        {({ isActive }) => (
+                          <SidebarMenuButton isActive={isActive} tooltip={item.label}>
+                            <item.icon />
+                            <span>{item.label}</span>
+                          </SidebarMenuButton>
+                        )}
+                      </NavLink>
+                    </SidebarMenuItem>
+                  ),
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
+          <UpdateCard />
+          <Separator className="group-data-[collapsible=icon]:hidden" />
           <UserSection />
           <div className="flex items-center justify-between px-2 py-1">
-            <span className="text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              v0.1.0-alpha
-            </span>
+            <VersionLabel />
             <ThemeToggle />
           </div>
         </SidebarFooter>

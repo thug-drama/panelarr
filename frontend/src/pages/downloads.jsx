@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BanIcon, RefreshCwIcon, ShieldCheckIcon, TrashIcon } from "lucide-react";
+import { BanIcon, PauseIcon, RefreshCwIcon, ShieldCheckIcon, TrashIcon } from "lucide-react";
 
 import {
   AlertDialog,
@@ -32,6 +32,8 @@ import {
   useDownloads,
   useDownloadStats,
   useImportScan,
+  useQbitAction,
+  useQbitTorrents,
 } from "@/hooks/use-api";
 import { cn, formatSize } from "@/lib/utils";
 
@@ -183,6 +185,65 @@ function DownloadTable({ items }) {
   );
 }
 
+function QbitTorrentTable({ filter }) {
+  const { data } = useQbitTorrents(filter);
+  const qbitAction = useQbitAction();
+
+  if (!data?.torrents?.length) {
+    return (
+      <div className="py-8 text-center text-sm text-muted-foreground">
+        No {filter === "seeding" ? "seeding" : "queued"} torrents
+      </div>
+    );
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead className="w-24">Size</TableHead>
+          <TableHead className="w-20">Ratio</TableHead>
+          <TableHead className="w-28">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {data.torrents.map((t) => (
+          <TableRow key={t.hash}>
+            <TableCell className="max-w-md truncate font-medium">{t.name}</TableCell>
+            <TableCell>{formatSize(t.size)}</TableCell>
+            <TableCell>{t.ratio.toFixed(2)}</TableCell>
+            <TableCell>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  title="Pause"
+                  disabled={qbitAction.isPending}
+                  onClick={() => qbitAction.mutate({ action: "pause", hashes: [t.hash] })}
+                >
+                  <PauseIcon className="size-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  title="Remove from qBit"
+                  disabled={qbitAction.isPending}
+                  onClick={() => qbitAction.mutate({ action: "delete", hashes: [t.hash] })}
+                >
+                  <TrashIcon className="size-3" />
+                </Button>
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 export default function Downloads() {
   const { data: downloads, isLoading, error, refetch } = useDownloads();
   const { data: stats } = useDownloadStats();
@@ -269,8 +330,11 @@ export default function Downloads() {
         {stats?.sabnzbd?.configured && stats.sabnzbd.speed && (
           <Badge variant="outline">SAB: {stats.sabnzbd.speed}</Badge>
         )}
-        {stats?.qbittorrent?.configured && typeof stats.qbittorrent.active === "number" && (
-          <Badge variant="outline">qBit: {stats.qbittorrent.active} active</Badge>
+        {stats?.qbittorrent?.configured && typeof stats.qbittorrent.downloading === "number" && (
+          <Badge variant="outline">
+            qBit: {stats.qbittorrent.downloading} ↓
+            {stats.qbittorrent.seeding > 0 && ` · ${stats.qbittorrent.seeding} seeding`}
+          </Badge>
         )}
       </div>
 
@@ -286,6 +350,11 @@ export default function Downloads() {
           )}
           <TabsTrigger value="torrent">Torrents</TabsTrigger>
           <TabsTrigger value="usenet">NZBs</TabsTrigger>
+          {stats?.qbittorrent?.configured && stats.qbittorrent.seeding > 0 && (
+            <TabsTrigger value="seeding">
+              Seeding ({stats.qbittorrent.seeding})
+            </TabsTrigger>
+          )}
           {(stats?.arr_services ?? ["sonarr", "radarr"]).map((svc) => (
             <TabsTrigger key={svc} value={svc}>
               {svc.charAt(0).toUpperCase() + svc.slice(1)}
@@ -295,7 +364,11 @@ export default function Downloads() {
         <TabsContent value={tab} className="mt-4">
           <Card>
             <CardContent className="p-0">
-              <DownloadTable items={filtered} />
+              {tab === "seeding" ? (
+                <QbitTorrentTable filter="seeding" />
+              ) : (
+                <DownloadTable items={filtered} />
+              )}
             </CardContent>
           </Card>
         </TabsContent>

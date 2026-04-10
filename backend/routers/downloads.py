@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter
@@ -13,7 +14,9 @@ from backend.services.arr import (
     get_arr_tasks,
     get_configured_arr_services,
     get_qbittorrent_stats,
+    get_qbittorrent_torrents,
     get_sabnzbd_stats,
+    qbittorrent_torrent_action,
     trigger_import_scan,
 )
 from backend.services.config import load_config
@@ -276,3 +279,31 @@ async def active_tasks() -> list[dict]:
     arr_services = get_configured_arr_services()
     task_results = await asyncio.gather(*[get_arr_tasks(svc) for svc in arr_services])
     return [task for tasks in task_results for task in tasks]
+
+
+_VALID_QBIT_FILTERS = {"downloading", "seeding", "stalled_downloading", "paused"}
+
+
+@router.get("/qbit/torrents")
+async def qbit_torrents(filter: str = "seeding") -> dict:
+    """List qBittorrent torrents by state."""
+    if filter not in _VALID_QBIT_FILTERS:
+        return {"ok": False, "message": "Invalid filter", "torrents": []}
+    return await get_qbittorrent_torrents(filter)
+
+
+_HASH_RE = re.compile(r"^[0-9a-fA-F]{40,64}$")
+
+
+@router.post("/qbit/action")
+async def qbit_action(body: dict) -> dict:
+    """Pause, resume, or delete qBittorrent torrents."""
+    action = body.get("action", "")
+    hashes = body.get("hashes", [])
+    if not isinstance(hashes, list) or not hashes:
+        return {"ok": False, "message": "hashes must be a non-empty list"}
+    if action not in ("pause", "resume", "delete"):
+        return {"ok": False, "message": f"Invalid action: {action}"}
+    if not all(isinstance(h, str) and _HASH_RE.match(h) for h in hashes):
+        return {"ok": False, "message": "Invalid hash format"}
+    return await qbittorrent_torrent_action(action, hashes)

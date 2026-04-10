@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from importlib.metadata import version as _pkg_version
 
 logger = logging.getLogger(__name__)
 
-VERSION = "0.1.0-alpha"
+VERSION = _pkg_version("panelarr")
 
 _VALID_AUTH_MODES = {"none", "basic", "proxy", "apikey"}
 

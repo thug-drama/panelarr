@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -46,23 +45,27 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await close_http_client()
 
 
+def _get_version() -> str:
+    """Read version from package metadata (set by pyproject.toml)."""
+    from importlib.metadata import version
+
+    try:
+        return version("panelarr")
+    except Exception:
+        return "0.0.0-dev"
+
+
 app = FastAPI(
     title="Panelarr",
-    version="0.1.0-alpha",
+    version=_get_version(),
     description="Self-hosted control center for Docker-based media server stacks",
     lifespan=lifespan,
 )
 
-_allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
-_allowed_origins = [o.strip() for o in _allowed_origins if o.strip()]
-
-# allow_credentials=True is incompatible with allow_origins=["*"] per
-# the fetch spec. When no origins are configured, use permissive CORS
-# without credentials. When explicit origins are set, enable credentials.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed_origins or ["*"],
-    allow_credentials=bool(_allowed_origins),
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["X-Api-Key", "Content-Type", "X-Confirm-Reset"],
 )

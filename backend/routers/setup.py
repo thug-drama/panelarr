@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from importlib.metadata import version as _pkg_version
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -28,7 +29,7 @@ from backend.services.registry import KNOWN_SERVICES, get_service_fields
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-VERSION = "0.1.0-alpha"
+VERSION = _pkg_version("panelarr")
 
 
 def _require_setup_incomplete() -> None:

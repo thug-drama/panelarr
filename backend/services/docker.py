@@ -299,6 +299,12 @@ async def pull_and_recreate(name_or_id: str) -> dict:
 
     Watchtower-style update: inspect → pull → stop → remove → create → start → reconnect networks.
     Preserves all config: env vars, volumes, ports, labels, restart policy, networks.
+
+    NOTE: Do NOT call this from within the container being updated. The stop step
+    will kill the running process before the new container can be started, leaving
+    the service down. Use self_update() instead, which delegates the destructive
+    steps to an ephemeral Docker CLI sidecar container so the swap happens after
+    the HTTP response has been sent.
     """
     try:
         async with httpx.AsyncClient(transport=_docker_transport(), timeout=PULL_TIMEOUT) as client:
@@ -414,6 +420,314 @@ async def pull_and_recreate(name_or_id: str) -> dict:
     except Exception:
         logger.exception("Container update failed for %s", name_or_id)
         return {"status": "error", "message": "Container update failed, check server logs"}
+
+
+async def self_update() -> dict:
+    """Safely update the panelarr container from within itself.
+
+    The fundamental problem with self-updating is that the process doing the
+    update lives inside the container being replaced. A naive
+    stop → remove → create → start sequence kills the executing process at the
+    stop step, so the create and start steps never run, leaving the service
+    permanently down.
+
+    Why other approaches fail
+    -------------------------
+    * **Blue/green port swap** – the new container cannot bind port 8000 while
+      the old one is still running.
+    * **docker update** – the Docker Engine API's POST /containers/{id}/update
+      only changes resource limits; you cannot change the image in place.
+    * **Kill PID 1 + restart policy** – Docker's restart policy reuses the image
+      layer the container was *created* from, not any newly pulled image, so the
+      same old version comes back.
+    * **Rename + create** – still has the port conflict problem during the
+      window where both containers exist.
+
+    The correct approach: ephemeral sidecar container
+    -------------------------------------------------
+    Pull the new image first (so it is cached locally, same as what the new
+    container will use). Then spawn a one-shot ephemeral ``docker:cli`` container
+    via the Docker socket. That sidecar runs entirely outside of the panelarr
+    process tree; it outlives panelarr, performs the stop/rm/create/start
+    sequence, and then exits. The sidecar has no port bindings, no name
+    conflicts, and its only dependency is the Docker socket.
+
+    The sequence inside the sidecar shell script:
+        docker stop panelarr
+        docker rm panelarr
+        docker create --name panelarr <all original flags reconstructed>
+        docker network connect <extra networks>
+        docker start panelarr
+        docker rm sidecar (self-cleanup via --rm flag)
+
+    This is the same mechanism Watchtower uses when updating itself: it
+    schedules a lifecycle hook that runs as an external process.
+
+    After returning ``{"status": "updating"}`` the frontend should poll
+    ``GET /api/system/health`` until it gets a 200 response with the new
+    version, then reload.
+    """
+    try:
+        async with httpx.AsyncClient(transport=_docker_transport(), timeout=PULL_TIMEOUT) as client:
+            # ── 1. Inspect ourselves ─────────────────────────────────────────────
+            # We identify our own container by the name "panelarr" (set in
+            # docker-compose.yml via container_name). Using the name is robust
+            # because the container ID changes on every recreation.
+            inspect_resp = await client.get(_docker_url("/containers/panelarr/json"))
+            if inspect_resp.status_code == 404:
+                return {
+                    "status": "error",
+                    "message": "Container 'panelarr' not found — is container_name set?",
+                }
+            inspect_resp.raise_for_status()
+            old = inspect_resp.json()
+
+            config = old.get("Config", {})
+            host_config = old.get("HostConfig", {})
+            network_settings = old.get("NetworkSettings", {})
+            container_name = old.get("Name", "").lstrip("/")
+            image = config.get("Image", "")
+
+            if not image:
+                return {"status": "error", "message": "Cannot determine container image"}
+
+            # ── 2. Pull the new image ────────────────────────────────────────────
+            # Pull via the Engine API (not docker CLI) so we get the image layer
+            # cached locally before we touch the running container. If the pull
+            # fails we abort early — the running container is untouched.
+            logger.info("self_update: pulling %s", image)
+            pull_resp = await client.post(
+                _docker_url("/images/create"),
+                params={"fromImage": image},
+                timeout=PULL_TIMEOUT,
+            )
+            if pull_resp.status_code not in (200, 204):
+                return {
+                    "status": "error",
+                    "message": f"Image pull failed: HTTP {pull_resp.status_code}",
+                }
+            logger.info("self_update: pull complete for %s", image)
+
+            # ── 3. Build the docker-run argv for the recreated panelarr container ─
+            # We reconstruct the full set of flags from the inspect output so the
+            # new container is identical to the old one. The sidecar will pass
+            # these to ``docker run`` / ``docker create`` + ``docker start``.
+            argv: list[str] = ["docker", "create", "--name", container_name]
+
+            # Restart policy
+            restart_policy = host_config.get("RestartPolicy", {})
+            rp_name = restart_policy.get("Name", "")
+            if rp_name and rp_name != "no":
+                max_retry = restart_policy.get("MaximumRetryCount", 0)
+                if rp_name == "on-failure" and max_retry:
+                    argv += ["--restart", f"on-failure:{max_retry}"]
+                else:
+                    argv += ["--restart", rp_name]
+
+            # Environment variables
+            for env_var in config.get("Env") or []:
+                argv += ["--env", env_var]
+
+            # Volume binds
+            for bind in host_config.get("Binds") or []:
+                argv += ["--volume", bind]
+
+            # Named volumes (Mounts with type=volume)
+            for mount in host_config.get("Mounts") or []:
+                if mount.get("Type") == "volume":
+                    src = mount.get("Source") or mount.get("Name", "")
+                    dst = mount.get("Destination", "")
+                    mode = "ro" if mount.get("ReadOnly") else "rw"
+                    if src and dst:
+                        argv += ["--volume", f"{src}:{dst}:{mode}"]
+
+            # Port bindings
+            port_bindings = host_config.get("PortBindings") or {}
+            for container_port, host_bindings in port_bindings.items():
+                for hb in host_bindings or []:
+                    host_ip = hb.get("HostIp", "")
+                    host_port = hb.get("HostPort", "")
+                    if host_ip:
+                        argv += ["--publish", f"{host_ip}:{host_port}:{container_port}"]
+                    else:
+                        argv += ["--publish", f"{host_port}:{container_port}"]
+
+            # Labels
+            for k, v in (config.get("Labels") or {}).items():
+                argv += ["--label", f"{k}={v}"]
+
+            # Capabilities
+            for cap in host_config.get("CapAdd") or []:
+                argv += ["--cap-add", cap]
+            for cap in host_config.get("CapDrop") or []:
+                argv += ["--cap-drop", cap]
+
+            # Memory / CPU limits (docker create flags)
+            mem_limit = host_config.get("Memory", 0)
+            if mem_limit:
+                argv += ["--memory", str(mem_limit)]
+            nano_cpus = host_config.get("NanoCpus", 0)
+            if nano_cpus:
+                # NanoCPUs → fractional CPUs string (e.g. 1000000000 → "1.0")
+                argv += ["--cpus", str(nano_cpus / 1_000_000_000)]
+
+            # tmpfs mounts
+            for tmpfs_path in (host_config.get("Tmpfs") or {}).keys():
+                argv += ["--tmpfs", tmpfs_path]
+
+            # Privileged (preserve if set, though Panelarr drops this)
+            if host_config.get("Privileged"):
+                argv.append("--privileged")
+
+            # Healthcheck (pass through if defined in the container)
+            healthcheck = config.get("Healthcheck") or {}
+            hc_test = healthcheck.get("Test") or []
+            if hc_test and hc_test[0] not in ("NONE", ""):
+                # hc_test is ["CMD", ...] or ["CMD-SHELL", "..."]
+                hc_cmd = " ".join(hc_test[1:]) if hc_test[0] == "CMD-SHELL" else None
+                if hc_cmd:
+                    argv += ["--health-cmd", hc_cmd]
+                interval_ns = healthcheck.get("Interval", 0)
+                timeout_ns = healthcheck.get("Timeout", 0)
+                retries = healthcheck.get("Retries", 0)
+                start_ns = healthcheck.get("StartPeriod", 0)
+                if interval_ns:
+                    argv += ["--health-interval", f"{interval_ns // 1_000_000}ms"]
+                if timeout_ns:
+                    argv += ["--health-timeout", f"{timeout_ns // 1_000_000}ms"]
+                if retries:
+                    argv += ["--health-retries", str(retries)]
+                if start_ns:
+                    argv += ["--health-start-period", f"{start_ns // 1_000_000}ms"]
+
+            # Image must be last before any CMD override
+            argv.append(image)
+
+            # ── 4. Build extra network-connect commands ───────────────────────────
+            # ``docker create`` only attaches to the first network specified via
+            # --network. We emit additional ``docker network connect`` calls for
+            # any extra networks so the sidecar can run them after the create.
+            networks = network_settings.get("Networks", {})
+            net_names = list(networks.keys())
+
+            # Attach the first network during create (avoids a separate connect call)
+            if net_names:
+                argv = argv[:-1] + ["--network", net_names[0], argv[-1]]
+
+            extra_network_cmds: list[list[str]] = []
+            for net_name in net_names[1:]:
+                extra_network_cmds.append(
+                    ["docker", "network", "connect", net_name, container_name]
+                )
+
+            # ── 5. Build the sidecar shell script ───────────────────────────────
+            # The script:
+            #   a) waits a moment so the HTTP response can be flushed to the client
+            #   b) stops and removes the old panelarr container
+            #   c) creates the new one with the reconstructed argv
+            #   d) connects extra networks
+            #   e) starts it
+            #
+            # The sidecar container itself is started with --rm so Docker removes
+            # it automatically when the script exits.
+            create_cmd = " ".join(_shell_quote(a) for a in argv)
+            extra_net_lines = "\n".join(
+                " ".join(_shell_quote(a) for a in cmd) for cmd in extra_network_cmds
+            )
+            script = (
+                "set -e\n"
+                "sleep 2\n"
+                f"docker stop --time 10 {_shell_quote(container_name)}\n"
+                f"docker rm {_shell_quote(container_name)}\n"
+                f"{create_cmd}\n"
+                f"{extra_net_lines}\n"
+                f"docker start {_shell_quote(container_name)}\n"
+            )
+
+            # 6. Ensure the sidecar image is available locally
+            logger.info("self_update: pulling docker:cli sidecar image")
+            cli_pull = await client.post(
+                _docker_url("/images/create"),
+                params={"fromImage": "docker", "tag": "cli"},
+                timeout=60,
+            )
+            if cli_pull.status_code not in (200, 201):
+                logger.warning("self_update: docker:cli pull returned %s", cli_pull.status_code)
+
+            # 7. Launch the ephemeral sidecar
+            sidecar_name = f"panelarr-updater-{int(asyncio.get_event_loop().time())}"
+            sidecar_body: dict = {
+                "Image": "docker:cli",
+                "Cmd": ["/bin/sh", "-c", script],
+                "HostConfig": {
+                    "AutoRemove": True,
+                    "Binds": [f"{settings.docker_socket}:/var/run/docker.sock"],
+                    # No network needed; the sidecar talks to the local socket only.
+                    "NetworkMode": "none",
+                },
+            }
+
+            logger.info("self_update: launching sidecar %s", sidecar_name)
+            create_resp = await client.post(
+                _docker_url("/containers/create"),
+                params={"name": sidecar_name},
+                json=sidecar_body,
+                timeout=30,
+            )
+            if create_resp.status_code not in (200, 201):
+                logger.error(
+                    "self_update: sidecar create failed %s: %s",
+                    create_resp.status_code,
+                    create_resp.text[:200],
+                )
+                return {
+                    "status": "error",
+                    "message": "Failed to create updater sidecar — update aborted",
+                }
+
+            sidecar_id = create_resp.json().get("Id", "")
+            start_resp = await client.post(
+                _docker_url(f"/containers/{sidecar_id}/start"),
+                timeout=10,
+            )
+            if start_resp.status_code not in (200, 204):
+                # Clean up the stranded sidecar
+                await client.delete(
+                    _docker_url(f"/containers/{sidecar_id}"),
+                    params={"force": "true"},
+                    timeout=10,
+                )
+                return {
+                    "status": "error",
+                    "message": "Failed to start updater sidecar — update aborted",
+                }
+
+            logger.info(
+                "self_update: sidecar %s started; panelarr will be replaced in ~2 s",
+                sidecar_name,
+            )
+            # Return immediately. The sidecar will stop and recreate this container
+            # in ~2 seconds. The frontend polls /api/system/health until it gets
+            # a 200 with the new version, then reloads.
+            return {
+                "status": "updating",
+                "message": (
+                    "Update in progress. Panelarr will restart in a few seconds. "
+                    "The UI will reload automatically when the new version is ready."
+                ),
+                "image": image,
+            }
+
+    except httpx.TimeoutException:
+        return {"status": "error", "message": "Image pull timed out — update aborted"}
+    except Exception:
+        logger.exception("self_update failed")
+        return {"status": "error", "message": "Self-update failed — check server logs"}
+
+
+def _shell_quote(s: str) -> str:
+    """Minimal shell single-quote escaping for embedding in a sh -c script."""
+    return "'" + s.replace("'", "'\\''") + "'"
 
 
 async def container_action(name_or_id: str, action: str) -> dict:

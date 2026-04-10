@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 import platform
+import re
 import shutil
 import time
+from importlib.metadata import version as pkg_version
 
 import httpx
 import psutil
@@ -151,7 +154,7 @@ async def health_check() -> dict:
     return {
         "status": status,
         "issues": issues,
-        "version": "0.1.0-alpha",
+        "version": pkg_version("panelarr"),
         "containers_total": total,
         "containers_running": running,
         "docker_connected": docker_ok,
@@ -394,3 +397,87 @@ def _get_uptime() -> str:
         return f"{hours}h {minutes}m"
     except Exception:
         return "unknown"
+
+
+_version_check_logger = logging.getLogger("panelarr.version")
+_cached_latest: dict | None = None
+_cached_latest_at: float = 0.0
+_VERSION_CHECK_TTL = 3600  # cache for 1 hour
+
+GHCR_IMAGE = "thug-drama/panelarr"
+
+
+def _parse_semver(v: str) -> tuple[int, ...]:
+    """Parse a version string like '0.1.1-alpha' into a comparable tuple."""
+    match = re.match(r"(\d+)\.(\d+)\.(\d+)", v.lstrip("v"))
+    if not match:
+        return (0, 0, 0)
+    return tuple(int(x) for x in match.groups())
+
+
+@router.get("/version-check")
+async def version_check() -> dict:
+    """Check GHCR for a newer version of Panelarr."""
+    global _cached_latest, _cached_latest_at
+
+    current = pkg_version("panelarr")
+    now = time.monotonic()
+
+    if _cached_latest and now - _cached_latest_at < _VERSION_CHECK_TTL:
+        return {**_cached_latest, "current": current}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            # GHCR token endpoint (public, no auth needed for public packages)
+            token_resp = await client.get(
+                f"https://ghcr.io/token?scope=repository:{GHCR_IMAGE}:pull"
+            )
+            token_resp.raise_for_status()
+            token = token_resp.json().get("token", "")
+
+            # List tags
+            tags_resp = await client.get(
+                f"https://ghcr.io/v2/{GHCR_IMAGE}/tags/list",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            tags_resp.raise_for_status()
+            tags = tags_resp.json().get("tags", [])
+
+        # Find the highest semver tag (skip :dev, :latest, :develop)
+        semver_tags = [t for t in tags if re.match(r"^\d+\.\d+\.\d+", t)]
+        if not semver_tags:
+            _cached_latest = {"latest": current, "update_available": False}
+            _cached_latest_at = now
+            return {**_cached_latest, "current": current}
+
+        semver_tags.sort(key=_parse_semver, reverse=True)
+        latest = semver_tags[0]
+        update_available = _parse_semver(latest) > _parse_semver(current)
+
+        _cached_latest = {
+            "latest": latest,
+            "update_available": update_available,
+            "release_url": f"https://github.com/{GHCR_IMAGE}/releases/tag/v{latest}",
+        }
+        _cached_latest_at = now
+        return {**_cached_latest, "current": current}
+
+    except Exception:
+        _version_check_logger.debug("Version check failed", exc_info=True)
+        return {"current": current, "latest": current, "update_available": False}
+
+
+@router.post("/self-update")
+async def self_update_endpoint() -> dict:
+    """Pull the latest GHCR image and safely recreate the panelarr container.
+
+    Pulls the new image first, then launches an ephemeral ``docker:cli``
+    sidecar container via the Docker socket. The sidecar runs outside the
+    panelarr process tree so it can stop, remove, and recreate this container
+    after the HTTP response has been sent. The frontend should poll
+    ``GET /api/system/health`` until it gets a 200 response with the new
+    version, then reload.
+    """
+    from backend.services.docker import self_update
+
+    return await self_update()

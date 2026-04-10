@@ -74,6 +74,29 @@ export function useDownloadStats() {
   });
 }
 
+export function useQbitTorrents(filter = "seeding") {
+  return useQuery({
+    queryKey: ["qbit-torrents", filter],
+    queryFn: () => apiFetch(`/downloads/qbit/torrents?filter=${filter}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useQbitAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, hashes }) =>
+      apiFetch("/downloads/qbit/action", {
+        method: "POST",
+        body: { action, hashes },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["qbit-torrents"] });
+      qc.invalidateQueries({ queryKey: ["download-stats"] });
+    },
+  });
+}
+
 export function useDeleteDownload() {
   const qc = useQueryClient();
   return useMutation({
@@ -164,6 +187,22 @@ export function useSystemHealth() {
   return useQuery({
     queryKey: ["system-health"],
     queryFn: () => apiFetch("/system/health"),
+  });
+}
+
+export function useVersionCheck() {
+  return useQuery({
+    queryKey: ["version-check"],
+    queryFn: () => apiFetch("/system/version-check"),
+    staleTime: 3600_000, // 1 hour
+    refetchInterval: 3600_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useSelfUpdate() {
+  return useMutation({
+    mutationFn: () => apiFetch("/system/self-update", { method: "POST" }),
   });
 }
 
