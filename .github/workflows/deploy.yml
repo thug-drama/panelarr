@@ -17,7 +17,7 @@ jobs:
           set -euo pipefail
           cd /opt/panelarr
           git fetch origin
-          git checkout origin/develop -- backend/ frontend/ pyproject.toml Dockerfile .github/
+          git checkout origin/develop -- backend/ frontend/ pyproject.toml Dockerfile entrypoint.sh .github/
           if docker compose pull 2>/dev/null; then
             echo "Pulled fresh image from GHCR"
           else

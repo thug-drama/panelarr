@@ -40,6 +40,7 @@ import {
   TooltipPopup,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useVersionCheck } from "@/hooks/use-api";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -76,6 +77,35 @@ const THEME_LABELS = {
   dark: "Dark",
   system: "System",
 };
+
+function VersionLabel() {
+  const { data } = useVersionCheck();
+  const version = data?.current ?? "...";
+  return (
+    <span className="text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+      v{version}
+    </span>
+  );
+}
+
+function UpdateBadge() {
+  const { data } = useVersionCheck();
+  if (!data?.update_available) return null;
+  return (
+    <a
+      href={data.release_url || "https://github.com/thug-drama/panelarr/releases"}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mx-2 flex items-center gap-2 rounded-md border border-brand/30 bg-brand/10 px-3 py-1.5 text-xs font-medium text-brand transition-colors hover:bg-brand/20 group-data-[collapsible=icon]:hidden"
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
+      </span>
+      v{data.latest} available
+    </a>
+  );
+}
 
 function ThemeToggle() {
   const { mode, cycleMode } = useTheme();
@@ -170,10 +200,9 @@ export default function Layout() {
         </SidebarContent>
         <SidebarFooter>
           <UserSection />
+          <UpdateBadge />
           <div className="flex items-center justify-between px-2 py-1">
-            <span className="text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              v0.1.0-alpha
-            </span>
+            <VersionLabel />
             <ThemeToggle />
           </div>
         </SidebarFooter>

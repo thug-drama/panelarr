@@ -167,6 +167,16 @@ export function useSystemHealth() {
   });
 }
 
+export function useVersionCheck() {
+  return useQuery({
+    queryKey: ["version-check"],
+    queryFn: () => apiFetch("/system/version-check"),
+    staleTime: 3600_000, // 1 hour
+    refetchInterval: 3600_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useDisks() {
   // Fast disk-only endpoint, does NOT touch Docker, so it's safe to refetch
   // aggressively and ideal for the dashboard's disk widget. Decoupled from

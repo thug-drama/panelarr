@@ -4,9 +4,12 @@ services:
     build: .
     container_name: panelarr
     restart: unless-stopped
-    read_only: true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     tmpfs:
       - /tmp
     deploy:
