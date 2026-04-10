@@ -468,16 +468,16 @@ async def version_check() -> dict:
 
 
 @router.post("/self-update")
-async def self_update() -> dict:
-    """Pull the latest GHCR image and recreate the panelarr container.
+async def self_update_endpoint() -> dict:
+    """Pull the latest GHCR image and safely recreate the panelarr container.
 
-    Uses the Docker socket to pull the new image, stop the current container,
-    remove it, create a new one with the same config, and start it. The
-    container running this code will be replaced, so the response may not
-    reach the client. The frontend should poll /api/system/health after
-    calling this to detect when the new container is up.
+    Pulls the new image first, then launches an ephemeral ``docker:cli``
+    sidecar container via the Docker socket. The sidecar runs outside the
+    panelarr process tree so it can stop, remove, and recreate this container
+    after the HTTP response has been sent. The frontend should poll
+    ``GET /api/system/health`` until it gets a 200 response with the new
+    version, then reload.
     """
-    from backend.services.docker import pull_and_recreate
+    from backend.services.docker import self_update
 
-    result = await pull_and_recreate("panelarr")
-    return result
+    return await self_update()

@@ -50,11 +50,11 @@ import {
   useMediaStats,
   useSystemHealth,
   useSystemInfo,
-  useSelfUpdate,
   useVersionCheck,
 } from "@/hooks/use-api";
 import { CalendarAgendaRow } from "@/components/calendar-agenda-row";
 import { cn, formatBytes } from "@/lib/utils";
+import { useUpdate } from "@/hooks/use-update";
 
 function meterColor(pct, warn = 80, crit = 90) {
   if (pct >= crit) return "bg-red-500";
@@ -174,32 +174,10 @@ function StreamCard({ stream }) {
 
 function UpdateBanner() {
   const { data } = useVersionCheck();
-  const selfUpdate = useSelfUpdate();
+  const { isUpdating, triggerUpdate } = useUpdate();
   const [isDismissed, setIsDismissed] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
 
   if (!data?.update_available || isDismissed) return null;
-
-  async function handleUpdate() {
-    setIsUpdating(true);
-    try {
-      await selfUpdate.mutateAsync();
-    } catch {
-      // Container may die before responding
-    }
-    const poll = setInterval(async () => {
-      try {
-        const resp = await fetch("/api/system/health");
-        if (resp.ok) {
-          clearInterval(poll);
-          window.location.reload();
-        }
-      } catch {
-        // Still restarting
-      }
-    }, 2000);
-    setTimeout(() => clearInterval(poll), 120_000);
-  }
 
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3">
@@ -216,7 +194,7 @@ function UpdateBanner() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={handleUpdate} disabled={isUpdating}>
+          <Button size="sm" onClick={triggerUpdate} disabled={isUpdating}>
             {isUpdating ? (
               <>
                 <Spinner className="size-3" />

@@ -41,9 +41,10 @@ import {
   TooltipPopup,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSelfUpdate, useVersionCheck } from "@/hooks/use-api";
+import { useVersionCheck } from "@/hooks/use-api";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
+import { useUpdate } from "@/hooks/use-update";
 
 const NAV_ITEMS = [
   { to: "/", icon: LayoutDashboardIcon, label: "Dashboard" },
@@ -91,34 +92,10 @@ function VersionLabel() {
 
 function UpdateCard() {
   const { data } = useVersionCheck();
-  const selfUpdate = useSelfUpdate();
+  const { isUpdating, triggerUpdate } = useUpdate();
   const [isDismissed, setIsDismissed] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
 
   if (!data?.update_available || isDismissed) return null;
-
-  async function handleUpdate() {
-    setIsUpdating(true);
-    try {
-      await selfUpdate.mutateAsync();
-    } catch {
-      // Container may die before responding, that's expected
-    }
-    // Poll health until the new container is up
-    const poll = setInterval(async () => {
-      try {
-        const resp = await fetch("/api/system/health");
-        if (resp.ok) {
-          clearInterval(poll);
-          window.location.reload();
-        }
-      } catch {
-        // Still restarting
-      }
-    }, 2000);
-    // Stop polling after 2 minutes
-    setTimeout(() => clearInterval(poll), 120_000);
-  }
 
   return (
     <div className="mx-2 mb-1 group-data-[collapsible=icon]:hidden">
@@ -149,7 +126,7 @@ function UpdateCard() {
         <Button
           size="sm"
           className="mt-2 w-full"
-          onClick={handleUpdate}
+          onClick={triggerUpdate}
           disabled={isUpdating}
         >
           {isUpdating ? (
