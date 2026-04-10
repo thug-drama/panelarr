@@ -23,11 +23,23 @@ _MANIFEST_ACCEPT = (
 
 
 def _docker_transport() -> httpx.AsyncHTTPTransport:
-    return httpx.AsyncHTTPTransport(uds=settings.docker_socket)
+    sock = settings.docker_socket
+    if sock.startswith("tcp://") or sock.startswith("http://"):
+        return httpx.AsyncHTTPTransport()
+    return httpx.AsyncHTTPTransport(uds=sock)
+
+
+def _docker_base_url() -> str:
+    sock = settings.docker_socket
+    if sock.startswith("tcp://"):
+        return sock.replace("tcp://", "http://")
+    if sock.startswith("http://"):
+        return sock
+    return "http://localhost"
 
 
 def _docker_url(path: str) -> str:
-    return f"http://localhost/{DOCKER_API_VERSION}{path}"
+    return f"{_docker_base_url()}/{DOCKER_API_VERSION}{path}"
 
 
 def _human_uptime(started_at: str) -> str:
@@ -656,15 +668,28 @@ async def self_update() -> dict:
 
             # 7. Launch the ephemeral sidecar
             sidecar_name = f"panelarr-updater-{int(asyncio.get_event_loop().time())}"
+            sock = settings.docker_socket
+            if sock.startswith("tcp://") or sock.startswith("http://"):
+                # TCP socket proxy: sidecar connects via DOCKER_HOST env var
+                sidecar_host_config: dict = {
+                    "AutoRemove": True,
+                    "NetworkMode": "host",
+                }
+                sidecar_env = [f"DOCKER_HOST={sock}"]
+            else:
+                # Unix socket: mount it into the sidecar
+                sidecar_host_config = {
+                    "AutoRemove": True,
+                    "Binds": [f"{sock}:/var/run/docker.sock"],
+                    "NetworkMode": "none",
+                }
+                sidecar_env = []
+
             sidecar_body: dict = {
                 "Image": "docker:cli",
                 "Cmd": ["/bin/sh", "-c", script],
-                "HostConfig": {
-                    "AutoRemove": True,
-                    "Binds": [f"{settings.docker_socket}:/var/run/docker.sock"],
-                    # No network needed; the sidecar talks to the local socket only.
-                    "NetworkMode": "none",
-                },
+                "Env": sidecar_env,
+                "HostConfig": sidecar_host_config,
             }
 
             logger.info("self_update: launching sidecar %s", sidecar_name)
